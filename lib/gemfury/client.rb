@@ -15,8 +15,7 @@ module Gemfury
     def account_info
       ensure_ready!(:authorization)
       response = connection.get('users/me')
-      ensure_successful_response!(response)
-      response.body
+      checked_response_body(response)
     end
 
     # Uploading a gem file
@@ -26,26 +25,25 @@ module Gemfury
       # Generate upload link
       api2 = connection(:url => self.endpoint2)
       response = api2.post('uploads')
-      ensure_successful_response!(response)
+      checked_response_body(response)
 
       # Upload to S3
       upload = response.body['upload']
       id, s3url = upload['id'], upload['blob']['put']
       response = s3_put_file(s3url, gem_file)
-      ensure_successful_response!(response)
+      checked_response_body(response)
 
       # Notify Gemfury that the upload is ready
       options[:name] ||= File.basename(gem_file.path)
       response = api2.put("uploads/#{id}", options)
-      ensure_successful_response!(response)
+      checked_response_body(response)
     end
 
     # List available gems
     def list(options = {})
       ensure_ready!(:authorization)
       response = connection.get('gems', options)
-      ensure_successful_response!(response)
-      response.body
+      checked_response_body(response)
     end
 
     # List versions for a gem
@@ -53,8 +51,7 @@ module Gemfury
       ensure_ready!(:authorization)
       url = "gems/#{escape(name)}/versions"
       response = connection.get(url, options)
-      ensure_successful_response!(response)
-      response.body
+      checked_response_body(response)
     end
 
     # Delete a gem version
@@ -62,27 +59,26 @@ module Gemfury
       ensure_ready!(:authorization)
       url = "gems/#{escape(name)}/versions/#{escape(version)}"
       response = connection.delete(url, options)
-      ensure_successful_response!(response)
-      response.body
+      checked_response_body(response)
     end
 
-    # Get Authentication token via email/password
-    def get_access_token(email, password, options = {})
-      ensure_ready!
-      response = connection.post('access_token', options.merge(
-        :email => email, :password => password
-      ))
+    # LEGACY: Authentication token via email/password
+    def get_access_token(*args)
+      login(*args)['access_token']
+    end
 
-      ensure_successful_response!(response)
-      response.body['access_token']
+    # Get authentication info via email/password
+    def login(email, password, opts = {})
+      ensure_ready!
+      opts = opts.merge(:email => email, :password => password)
+      checked_response_body(connection.post('access_token', opts))
     end
 
     # List collaborators for this account
     def list_collaborators(options = {})
       ensure_ready!(:authorization)
       response = connection.get('collaborators', options)
-      ensure_successful_response!(response)
-      response.body
+      checked_response_body(response)
     end
 
     # Add a collaborator to the account
@@ -90,7 +86,7 @@ module Gemfury
       ensure_ready!(:authorization)
       url = "collaborators/#{escape(login)}"
       response = connection.put(url, options)
-      ensure_successful_response!(response)
+      checked_response_body(response)
     end
 
     # Remove a collaborator to the account
@@ -98,7 +94,7 @@ module Gemfury
       ensure_ready!(:authorization)
       url = "collaborators/#{escape(login)}"
       response = connection.delete(url, options)
-      ensure_successful_response!(response)
+      checked_response_body(response)
     end
 
   private
@@ -136,8 +132,10 @@ module Gemfury
       end
     end
 
-    def ensure_successful_response!(response)
-      unless response.success?
+    def checked_response_body(response)
+      if response.success?
+        return response.body
+      else
         error = (response.body || {})['error'] || {}
         error_class = case response.status
         when 401 then Gemfury::Unauthorized
